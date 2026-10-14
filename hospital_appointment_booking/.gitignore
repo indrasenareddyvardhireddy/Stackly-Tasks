@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# Test, coverage, and type-checker caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.hypothesis/
+
+# Logs
+*.log
+logs/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Uploads / user-provided files
+# Keep this only if uploaded medical files are stored locally in this directory.
+# Uncomment the next line if your project uses a local uploads folder:
+# uploads/
+
+# Database dumps and local database files
+*.sql
+*.sql.gz
+*.sqlite3
+*.db
+
+# Alembic: keep migration scripts under version control.
+# Do NOT ignore alembic/versions/ unless you intentionally want to exclude migrations.
+
+# Local test artifacts
+test-results/

@@ -1,0 +1,1 @@
+Run `alembic revision --autogenerate -m 'initial hospital schema'` then `alembic upgrade head`. Generated migration files belong in this directory and must be committed.
