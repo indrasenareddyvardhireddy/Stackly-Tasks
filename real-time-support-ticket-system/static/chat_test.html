@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket Chat Test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 1.3rem; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  input[type=text], input[type=number] { flex: 1; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+  button { padding: 8px 14px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+  button:disabled { background: #9aa; cursor: not-allowed; }
+  #status { font-size: .9rem; margin: 6px 0; }
+  #log { height: 340px; overflow-y: auto; border: 1px solid #ccc; border-radius: 8px; padding: 10px; background: #fafafa; }
+  .msg { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #e8eefc; }
+  .msg.internal { background: #fff3cd; }
+  .msg.system { background: #eee; font-size: .85rem; color: #555; }
+  .msg.error { background: #fde2e2; }
+  .meta { font-size: .75rem; color: #666; }
+  #typing { height: 18px; font-size: .85rem; color: #666; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>Ticket Chat Test</h1>
+<div class="row">
+  <input id="token" type="text" placeholder="Access token (from POST /auth/login)">
+</div>
+<div class="row">
+  <input id="ticketId" type="number" placeholder="Ticket ID" min="1">
+  <button id="connectBtn">Connect</button>
+  <button id="disconnectBtn" disabled>Disconnect</button>
+</div>
+<div id="status">Not connected</div>
+<div id="log"></div>
+<div id="typing"></div>
+<div class="row">
+  <input id="message" type="text" placeholder="Type a message..." disabled>
+  <button id="sendBtn" disabled>Send</button>
+</div>
+<label><input type="checkbox" id="internal"> Internal note (agents/admin only)</label>
+
+<script>
+  let ws = null, typingTimer = null, typingHideTimer = null;
+  const $ = id => document.getElementById(id);
+
+  function add(text, cls, meta) {
+    const d = document.createElement("div");
+    d.className = "msg " + (cls || "");
+    if (meta) { const m = document.createElement("div"); m.className = "meta"; m.textContent = meta; d.appendChild(m); }
+    d.appendChild(document.createTextNode(text));
+    $("log").appendChild(d);
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+  function renderMessage(m) {
+    const meta = `${m.sender_role} #${m.sender_id} · ${new Date(m.created_at + "Z").toLocaleString()}` +
+                 (m.is_internal_note ? " · INTERNAL NOTE" : "") + (m.is_read ? " · read" : "");
+    add(m.message, m.is_internal_note ? "internal" : "", meta);
+  }
+  function setConnected(on) {
+    $("connectBtn").disabled = on; $("disconnectBtn").disabled = !on;
+    $("message").disabled = !on; $("sendBtn").disabled = !on;
+  }
+
+  $("connectBtn").onclick = () => {
+    const token = $("token").value.trim(), id = $("ticketId").value.trim();
+    if (!token || !id) { alert("Enter a token and a ticket id"); return; }
+    $("log").innerHTML = "";
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws/tickets/${id}?token=${encodeURIComponent(token)}`);
+    ws.onopen = () => { $("status").textContent = "Connected to ticket " + id; setConnected(true); };
+    ws.onclose = e => { $("status").textContent = `Disconnected (code ${e.code}${e.reason ? ": " + e.reason : ""})`; setConnected(false); };
+    ws.onerror = () => add("WebSocket error", "error");
+    ws.onmessage = e => {
+      const p = JSON.parse(e.data);
+      if (p.type === "history") { add(`Loaded last ${p.messages.length} message(s)`, "system"); p.messages.forEach(renderMessage); }
+      else if (p.type === "message") { $("typing").textContent = ""; renderMessage(p.data); }
+      else if (p.type === "typing") {
+        $("typing").textContent = p.is_typing ? p.text : "";
+        clearTimeout(typingHideTimer); typingHideTimer = setTimeout(() => $("typing").textContent = "", 3000);
+      }
+      else if (p.type === "read") add(`${p.reader_role} read the messages`, "system");
+      else if (p.type === "error") add(p.detail, "error");
+      else add(e.data, "system");
+    };
+  };
+  $("disconnectBtn").onclick = () => ws && ws.close();
+
+  function send() {
+    const text = $("message").value.trim();
+    if (!text || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ message: text, is_internal_note: $("internal").checked }));
+    $("message").value = "";
+  }
+  $("sendBtn").onclick = send;
+  $("message").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+  $("message").addEventListener("input", () => {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "typing", is_typing: true }));
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: "typing", is_typing: false })), 1500);
+  });
+</script>
+</body>
+</html>
