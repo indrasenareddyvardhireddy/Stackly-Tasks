@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Order Tracking Test</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  label { display: block; margin: .6rem 0 .2rem; font-weight: 600; }
+  input { width: 100%; padding: .5rem; box-sizing: border-box; }
+  button { margin-top: .8rem; padding: .5rem 1rem; cursor: pointer; }
+  .card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+  .status { font-size: 1.4rem; font-weight: 700; }
+  pre { background: #8881; padding: .6rem; max-height: 220px; overflow: auto; font-size: .8rem; }
+</style>
+</head>
+<body>
+<h1>Live Order Tracking</h1>
+<label for="token">Access token</label>
+<input id="token" placeholder="Paste JWT from /auth/login">
+<label for="orderId">Order ID</label>
+<input id="orderId" type="number" value="1">
+<button id="connect">Connect</button>
+<button id="disconnect" disabled>Disconnect</button>
+<span id="conn">Disconnected</span>
+
+<div class="card">
+  <div>Order <b id="num">-</b></div>
+  <div class="status" id="status">-</div>
+  <div id="msg"></div>
+  <hr>
+  <div>Partner: <b id="partner">not assigned</b></div>
+  <div>Location: <b id="loc">-</b></div>
+  <div>Distance remaining: <b id="dist">-</b> km &middot; ETA: <b id="eta">-</b> min</div>
+</div>
+<h3>Raw messages</h3>
+<pre id="log"></pre>
+
+<script>
+let ws = null;
+const $ = (id) => document.getElementById(id);
+
+function render(d) {
+  $("num").textContent = d.order_number || d.order_id;
+  $("status").textContent = d.status;
+  $("msg").textContent = d.message || "";
+  if (d.partner) {
+    $("partner").textContent = d.partner.name + " (" + d.partner.vehicle_type + " " + d.partner.vehicle_number + ")";
+    $("loc").textContent = d.partner.latitude == null ? "unknown" : d.partner.latitude.toFixed(5) + ", " + d.partner.longitude.toFixed(5);
+  }
+  $("dist").textContent = d.distance_remaining_km;
+  $("eta").textContent = d.eta_minutes;
+}
+
+$("connect").onclick = () => {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const url = proto + "://" + location.host + "/ws/orders/" + $("orderId").value + "?token=" + encodeURIComponent($("token").value.trim());
+  ws = new WebSocket(url);
+  ws.onopen = () => { $("conn").textContent = "Connected"; $("connect").disabled = true; $("disconnect").disabled = false; };
+  ws.onmessage = (e) => {
+    $("log").textContent = new Date().toLocaleTimeString() + " " + e.data + "\n" + $("log").textContent;
+    render(JSON.parse(e.data));
+  };
+  ws.onclose = (e) => {
+    $("conn").textContent = "Disconnected" + (e.reason ? " (" + e.reason + ")" : "");
+    $("connect").disabled = false; $("disconnect").disabled = true;
+  };
+};
+$("disconnect").onclick = () => ws && ws.close();
+</script>
+</body>
+</html>
