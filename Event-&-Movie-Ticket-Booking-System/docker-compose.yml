@@ -1,0 +1,34 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: ticket_booking
+    ports: ["3306:3306"]
+    volumes: [mysql_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    # keyspace notifications let the live seat map show lock expiries instantly
+    command: ["redis-server", "--notify-keyspace-events", "Ex"]
+    ports: ["6379:6379"]
+
+  app:
+    build: .
+    env_file: [.env]
+    environment:
+      DATABASE_URL: mysql+pymysql://root:rootpass@db:3306/ticket_booking
+      REDIS_URL: redis://redis:6379/0
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+    volumes: ["./tickets:/code/tickets"]
+
+volumes:
+  mysql_data:

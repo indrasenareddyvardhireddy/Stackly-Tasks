@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live Seat Map Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0f172a; --panel:#1e293b; --text:#e2e8f0; --muted:#94a3b8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; background:var(--panel); display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  input { padding:7px 9px; border-radius:6px; border:1px solid #475569; background:#0f172a; color:var(--text); }
+  input#token { width:280px; } input#showId { width:80px; }
+  button { padding:8px 14px; border:0; border-radius:6px; background:#3b82f6; color:white; cursor:pointer; font-weight:600; }
+  button.secondary { background:#475569; }
+  #status { margin-left:auto; font-size:13px; color:var(--muted); }
+  main { display:flex; gap:20px; padding:20px; flex-wrap:wrap; }
+  #mapWrap { flex:1 1 520px; background:var(--panel); border-radius:10px; padding:16px; overflow-x:auto; }
+  .screen { margin:0 auto 18px; width:70%; height:8px; background:#cbd5e1; border-radius:50%; box-shadow:0 8px 20px #94a3b8aa; }
+  .screen-label { text-align:center; color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .row { display:flex; align-items:center; gap:6px; margin-bottom:6px; justify-content:center; }
+  .row-label { width:22px; color:var(--muted); font-size:12px; text-align:center; }
+  .seat { width:34px; height:30px; border-radius:6px 6px 3px 3px; font-size:11px; display:flex; align-items:center;
+          justify-content:center; color:#0f172a; font-weight:700; cursor:pointer; transition: background .25s, transform .15s; user-select:none; }
+  .seat:hover { transform: scale(1.1); }
+  .Available { background:#4ade80; } .Locked { background:#fb923c; } .Booked { background:#f87171; cursor:not-allowed; }
+  .Unavailable { background:#64748b; cursor:not-allowed; } .Yours { background:#38bdf8; }
+  .flash { outline:3px solid #fde047; }
+  .legend { display:flex; gap:14px; justify-content:center; margin-top:16px; font-size:12px; flex-wrap:wrap; }
+  .legend span::before { content:""; display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px; background:var(--c); }
+  #side { flex:0 1 340px; background:var(--panel); border-radius:10px; padding:16px; }
+  #log { height:340px; overflow:auto; font-family: ui-monospace, monospace; font-size:12px; background:#0f172a; border-radius:6px; padding:8px; }
+  #log div { padding:2px 0; border-bottom:1px solid #1e293b; }
+  .hint { color:var(--muted); font-size:12px; margin-top:8px; line-height:1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Live Seat Map</h1>
+  <input id="token" placeholder="Paste access token (from POST /auth/login)">
+  <input id="showId" type="number" value="1" min="1" title="Show ID">
+  <button id="connectBtn">Connect</button>
+  <button id="disconnectBtn" class="secondary">Disconnect</button>
+  <span id="status">Disconnected</span>
+</header>
+<main>
+  <div id="mapWrap">
+    <div class="screen"></div><div class="screen-label">SCREEN</div>
+    <div id="seats"></div>
+    <div class="legend">
+      <span style="--c:#4ade80">Available</span><span style="--c:#fb923c">Locked</span>
+      <span style="--c:#38bdf8">Yours</span><span style="--c:#f87171">Booked</span><span style="--c:#64748b">Unavailable</span>
+    </div>
+  </div>
+  <div id="side">
+    <strong>Live updates</strong>
+    <div id="log"></div>
+    <div class="hint">Click an <b>Available</b> seat to lock it (customer token needed), click one of <b>Yours</b> to release it.
+    Lock requests are limited to 5 per minute. Open this page in two tabs with two customers to see updates appear instantly.</div>
+  </div>
+</main>
+<script>
+let ws = null, seats = {}, showId = 1;
+const $ = (id) => document.getElementById(id);
+$("token").value = localStorage.getItem("seat_token") || "";
+
+function log(msg) {
+  const d = document.createElement("div");
+  d.textContent = new Date().toLocaleTimeString() + "  " + msg;
+  $("log").prepend(d);
+}
+function setStatus(t) { $("status").textContent = t; }
+
+function render() {
+  const rows = {};
+  Object.values(seats).forEach(s => (rows[s.row_label] = rows[s.row_label] || []).push(s));
+  const keys = Object.keys(rows).sort((a, b) => a.length - b.length || a.localeCompare(b));
+  const root = $("seats");
+  root.innerHTML = "";
+  keys.forEach(k => {
+    const row = document.createElement("div"); row.className = "row";
+    const label = document.createElement("div"); label.className = "row-label"; label.textContent = k;
+    row.appendChild(label);
+    rows[k].sort((a, b) => a.seat_number - b.seat_number).forEach(s => {
+      const el = document.createElement("div");
+      el.className = "seat " + s.status; el.id = "seat-" + s.seat_id;
+      el.textContent = s.seat_number;
+      el.title = s.label + (s.category ? " - " + s.category : "") + (s.price !== undefined ? " - Rs." + s.price : "") + " (" + s.status + ")";
+      el.onclick = () => seatClick(s);
+      row.appendChild(el);
+    });
+    root.appendChild(row);
+  });
+}
+
+function updateSeat(u) {
+  if (!seats[u.seat_id]) return;
+  seats[u.seat_id].status = u.status;
+  const el = $("seat-" + u.seat_id);
+  if (el) {
+    el.className = "seat " + u.status + " flash";
+    el.title = seats[u.seat_id].label + " (" + u.status + ")";
+    setTimeout(() => el.classList.remove("flash"), 900);
+  }
+}
+
+function connect() {
+  disconnect();
+  showId = parseInt($("showId").value, 10);
+  const token = $("token").value.trim();
+  localStorage.setItem("seat_token", token);
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/shows/${showId}/seats?token=${encodeURIComponent(token)}`);
+  ws.onopen = () => setStatus("Connected to show " + showId);
+  ws.onclose = (e) => { setStatus("Disconnected" + (e.reason ? " - " + e.reason : "")); log("Connection closed " + (e.reason || e.code)); };
+  ws.onerror = () => log("WebSocket error");
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === "seat_map") {
+      seats = {}; m.seats.forEach(s => seats[s.seat_id] = s);
+      render(); log("Full seat map received (" + m.seats.length + " seats)");
+    } else if (m.type === "seat_update") {
+      m.seats.forEach(updateSeat); log(m.message);
+    } else if (m.type === "show_cancelled") {
+      log("SHOW CANCELLED: " + m.message);
+      Object.values(seats).forEach(s => { if (s.status !== "Booked") updateSeat({seat_id: s.seat_id, status: "Unavailable"}); });
+    } else { log(e.data); }
+  };
+}
+function disconnect() { if (ws) { ws.onclose = null; ws.close(); ws = null; setStatus("Disconnected"); } }
+
+async function seatClick(s) {
+  const token = $("token").value.trim();
+  const headers = {"Content-Type": "application/json", "Authorization": "Bearer " + token};
+  let res;
+  if (s.status === "Available") {
+    res = await fetch(`/shows/${showId}/lock-seats`, {method: "POST", headers, body: JSON.stringify({seat_ids: [s.seat_id]})});
+  } else if (s.status === "Yours") {
+    res = await fetch(`/shows/${showId}/lock-seats`, {method: "DELETE", headers, body: JSON.stringify({seat_ids: [s.seat_id]})});
+  } else { return; }
+  if (!res.ok) { const j = await res.json().catch(() => ({})); log("Request failed: " + JSON.stringify(j.detail || res.status)); }
+}
+
+$("connectBtn").onclick = connect;
+$("disconnectBtn").onclick = disconnect;
+</script>
+</body>
+</html>

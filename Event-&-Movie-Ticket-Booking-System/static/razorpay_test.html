@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mock Payment Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:30px; }
+  .card { max-width:600px; margin:auto; background:#1e293b; border-radius:12px; padding:24px; }
+  h1 { margin-top:0; font-size:20px; }
+  label { display:block; margin:14px 0 4px; font-size:13px; color:#94a3b8; }
+  input, select { width:100%; padding:9px; border-radius:6px; border:1px solid #475569; background:#0f172a; color:#e2e8f0; box-sizing:border-box; }
+  input.bad { border-color:#f87171; }
+  button { margin-top:14px; padding:11px 18px; border:0; border-radius:6px; background:#3b82f6; color:#fff; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  button.green { background:#16a34a; }
+  .row { display:flex; gap:10px; } .row > div { flex:1; }
+  pre { background:#0f172a; padding:12px; border-radius:6px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  .hint { color:#94a3b8; font-size:12px; line-height:1.6; margin-top:14px; }
+  hr { border:0; border-top:1px solid #334155; margin:20px 0 4px; }
+  .hidden { display:none; }
+  .err { color:#f87171; font-size:12px; margin-top:8px; min-height:14px; }
+  #receipt { margin-top:16px; padding:14px; border-radius:8px; background:#0f172a; border-left:4px solid #16a34a; }
+  #receipt.fail { border-left-color:#f87171; }
+  #receipt b { color:#94a3b8; font-weight:600; display:inline-block; min-width:130px; }
+  #receipt div { padding:3px 0; font-size:13px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Mock Payment (no Razorpay needed)</h1>
+
+  <label>Customer access token</label>
+  <input id="token" placeholder="Paste access token from POST /auth/login">
+
+  <label>Step 1 - Show ID (lock seats first on /seat-map-test)</label>
+  <div class="row">
+    <div><input id="showId" type="number" value="1" min="1"></div>
+    <div><button id="bookBtn" style="margin-top:0;width:100%">Create booking from my locked seats</button></div>
+  </div>
+
+  <hr>
+  <label>Step 2 - Booking ID</label>
+  <input id="bookingId" type="number" min="1" placeholder="Filled automatically after step 1">
+
+  <div class="row">
+    <div><label>Payment method</label>
+      <select id="method"><option>UPI</option><option>Card</option><option>Net Banking</option></select></div>
+    <div><label>Simulated outcome</label>
+      <select id="outcome"><option>Success</option><option>Failed</option></select></div>
+  </div>
+
+  <!-- UPI -->
+  <div id="f-UPI">
+    <label>UPI ID</label>
+    <input id="upiId" placeholder="name@bank  (e.g. success@razorpay)" autocomplete="off">
+  </div>
+  <!-- Card -->
+  <div id="f-Card" class="hidden">
+    <label>Card number</label>
+    <input id="cardNo" inputmode="numeric" placeholder="4111 1111 1111 1111" maxlength="23" autocomplete="off">
+    <label>Name on card</label>
+    <input id="cardName" placeholder="Name as on card" autocomplete="off">
+    <div class="row">
+      <div><label>Expiry (MM/YY)</label><input id="cardExp" placeholder="12/30" maxlength="5" autocomplete="off"></div>
+      <div><label>CVV</label><input id="cardCvv" type="password" inputmode="numeric" placeholder="123" maxlength="4" autocomplete="off"></div>
+    </div>
+  </div>
+  <!-- Net banking -->
+  <div id="f-Net Banking" class="hidden">
+    <label>Bank</label>
+    <select id="bank"><option>HDFC Bank</option><option>ICICI Bank</option><option>State Bank of India</option><option>Axis Bank</option></select>
+  </div>
+  <div class="err" id="err"></div>
+
+  <button id="payBtn" class="green">Pay now (mock)</button>
+
+  <div id="receipt" class="hidden"></div>
+  <pre id="out">Waiting...</pre>
+  <div class="hint">
+    Flow: lock seats on <code>/seat-map-test</code> &rarr; <b>Create booking</b> &rarr; enter payment details &rarr; <b>Pay now</b>.<br>
+    This is a simulation: the details are only checked in your browser and are <b>never sent to the server or saved</b>.
+    The server records the method, the amount and a generated <code>razorpay_order_id</code> / <code>razorpay_payment_id</code>.
+    Test values: UPI <code>success@razorpay</code>, card <code>4111 1111 1111 1111</code>, any future expiry, any CVV.
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const out = (x) => { $("out").textContent = typeof x === "string" ? x : JSON.stringify(x, null, 2); };
+$("token").value = localStorage.getItem("seat_token") || "";
+
+async function api(method, path, body) {
+  const res = await fetch(path, {method,
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + $("token").value.trim()},
+    body: body ? JSON.stringify(body) : undefined});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
+  return data;
+}
+
+// ---- show the fields for the chosen method
+function showFields() {
+  ["UPI", "Card", "Net Banking"].forEach(m => $("f-" + m).classList.toggle("hidden", m !== $("method").value));
+  $("err").textContent = "";
+}
+$("method").onchange = showFields;
+
+// ---- input helpers
+$("cardNo").oninput = (e) => {
+  const d = e.target.value.replace(/\D/g, "").slice(0, 19);
+  e.target.value = d.replace(/(.{4})/g, "$1 ").trim();
+};
+$("cardExp").oninput = (e) => {
+  let d = e.target.value.replace(/\D/g, "").slice(0, 4);
+  e.target.value = d.length > 2 ? d.slice(0, 2) + "/" + d.slice(2) : d;
+};
+
+// ---- validation (browser only)
+function luhn(num) {
+  let sum = 0, alt = false;
+  for (let i = num.length - 1; i >= 0; i--) {
+    let n = parseInt(num[i], 10);
+    if (alt) { n *= 2; if (n > 9) n -= 9; }
+    sum += n; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+function validate() {
+  const m = $("method").value;
+  document.querySelectorAll("input").forEach(i => i.classList.remove("bad"));
+  const fail = (id, msg) => { if (id) $(id).classList.add("bad"); return msg; };
+  if (m === "UPI") {
+    if (!/^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/.test($("upiId").value.trim())) return fail("upiId", "Enter a valid UPI ID like name@bank");
+  } else if (m === "Card") {
+    const num = $("cardNo").value.replace(/\s/g, "");
+    if (!/^\d{13,19}$/.test(num) || !luhn(num)) return fail("cardNo", "Invalid card number");
+    if ($("cardName").value.trim().length < 2) return fail("cardName", "Enter the name on the card");
+    const mm = /^(\d{2})\/(\d{2})$/.exec($("cardExp").value);
+    if (!mm || +mm[1] < 1 || +mm[1] > 12) return fail("cardExp", "Expiry must be MM/YY");
+    const exp = new Date(2000 + +mm[2], +mm[1], 1);          // first day after the expiry month
+    if (exp <= new Date()) return fail("cardExp", "Card has expired");
+    if (!/^\d{3,4}$/.test($("cardCvv").value)) return fail("cardCvv", "CVV must be 3 or 4 digits");
+  }
+  return "";
+}
+
+function receipt(r, ok) {
+  const p = r.payment;
+  const el = $("receipt");
+  el.className = ok ? "" : "fail";
+  el.innerHTML =
+    `<div><b>Status</b> ${p.status} (${r.booking_status})</div>` +
+    `<div><b>Message</b> ${r.message}</div>` +
+    `<div><b>razorpay_order_id</b> ${p.razorpay_order_id || "-"}</div>` +
+    `<div><b>razorpay_payment_id</b> ${p.razorpay_payment_id || "-"}</div>` +
+    `<div><b>Transaction ID</b> ${p.transaction_id}</div>` +
+    `<div><b>Method</b> ${p.payment_method}</div>` +
+    `<div><b>Amount</b> Rs.${p.amount}</div>` +
+    (r.ticket_url ? `<div><b>Ticket</b> <a style="color:#60a5fa" href="${r.ticket_url}" target="_blank">${r.ticket_url}</a></div>` : "");
+}
+
+$("bookBtn").onclick = async () => {
+  try {
+    const showId = parseInt($("showId").value, 10);
+    out("Loading your locked seats...");
+    const map = await api("GET", `/shows/${showId}/seats`);
+    const mine = map.seats.filter(s => s.locked_by_you).map(s => s.seat_id);
+    if (!mine.length) { out("You have no locked seats for this show. Lock seats on /seat-map-test first."); return; }
+    const booking = await api("POST", "/bookings", {show_id: showId, seat_ids: mine});
+    $("bookingId").value = booking.id;
+    out(booking);
+  } catch (e) { out("Error: " + e.message); }
+};
+
+$("payBtn").onclick = async () => {
+  const msg = validate();
+  $("err").textContent = msg;
+  if (msg) return;
+  const btn = $("payBtn");
+  btn.disabled = true;
+  try {
+    const id = $("bookingId").value;
+    $("receipt").className = "hidden";
+    out("Processing payment...");
+    await new Promise(r => setTimeout(r, 1200));                 // pretend to talk to a gateway
+    // only the method and the simulated outcome are sent - never UPI ID / card details
+    const r = await api("POST", `/bookings/${id}/pay`,
+      {payment_method: $("method").value, simulate_status: $("outcome").value});
+    receipt(r, r.payment.status === "Success");
+    out(r);
+    ["cardNo", "cardCvv", "cardExp", "cardName"].forEach(i => $(i).value = "");   // clear card data
+  } catch (e) { out("Error: " + e.message); }
+  btn.disabled = false;
+};
+showFields();
+</script>
+</body>
+</html>
