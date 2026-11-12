@@ -1,13 +1,14 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential pkg-config default-libmysqlclient-dev \
-    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-# collect admin static files at build time (no database needed)
+COPY . /src
+RUN set -e; \
+    M=$(find /src -name manage.py -not -path "*/node_modules/*" -not -path "*/venv/*" | head -1); \
+    if [ -z "$M" ]; then echo "manage.py NOT FOUND. Folder tree:"; find /src -maxdepth 3; exit 1; fi; \
+    echo "Using project folder: $(dirname "$M")"; \
+    cp -r "$(dirname "$M")"/. /app/; \
+    rm -rf /src; \
+    pip install --no-cache-dir -r requirements.txt
 RUN SECRET_KEY=build USE_SQLITE=True python manage.py collectstatic --noinput
 EXPOSE 8000
-# Once you commit the generated migrations you can drop the makemigrations step.
-CMD ["sh", "-c", "python manage.py makemigrations accounts tasks && python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2"]
+CMD ["sh", "-c", "python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2"]
