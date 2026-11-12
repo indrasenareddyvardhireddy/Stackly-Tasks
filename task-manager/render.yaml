@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: taskboard-api
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /admin/login/
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: TIME_ZONE
+        value: Asia/Kolkata
+      - key: FRONTEND_URL      # your Vercel URL, e.g. https://taskboard.vercel.app (no trailing slash)
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_SSL
+        value: "True"
