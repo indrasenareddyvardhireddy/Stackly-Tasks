@@ -3,7 +3,9 @@ djangorestframework>=3.15,<3.16
 djangorestframework-simplejwt>=5.3,<5.4
 django-cors-headers>=4.4,<5
 django-filter>=24.3,<25
-
 python-decouple>=3.8,<4
 gunicorn>=22.0
 whitenoise>=6.7
+PyMySQL>=1.1
+cryptography>=42
+certifi
